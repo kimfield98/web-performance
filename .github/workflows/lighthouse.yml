@@ -1,0 +1,69 @@
+name: Lighthouse CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to run Lighthouse on'
+        required: false
+        default: 'http://localhost:8080'
+
+jobs:
+  lhci:
+    name: Lighthouse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: |
+          npm install -g @lhci/cli@0.12.x
+          npm install -g http-server
+      - name: Start local server
+        run: http-server . -p 8080 &
+      - name: Run Lighthouse CI
+        run: |
+          URL="${{ github.event.inputs.url || 'http://localhost:8080' }}"
+          lhci autorun --collect.url=$URL
+      - name: Format and Log Lighthouse score
+        run: |
+          echo "Lighthouse 성능 측정 결과"
+          if [ -f .lighthouseci/links.json ]; then
+            LATEST_JSON=$(ls -t .lighthouseci/lhr-*.json | head -n1)
+            if [ -n "$LATEST_JSON" ]; then
+              jq -r '.categories | to_entries[] | "\(.key): \(.value.score * 100 | floor)"' "$LATEST_JSON" | while read line; do
+                key=$(echo "$line" | cut -d':' -f1)
+                score=$(echo "$line" | cut -d':' -f2)
+                if (( $(echo "$score >= 90" | bc -l) )); then
+                  emoji="🟢"
+                elif (( $(echo "$score >= 50" | bc -l) )); then
+                  emoji="🟠"
+                else
+                  emoji="🔴"
+                fi
+                echo "$key: $emoji $score"
+              done
+              
+              # Try to extract report URL from links.json
+              REPORT_URL=$(jq -r '.html' .lighthouseci/links.json)
+              
+              # If the above fails, try to construct the URL from the JSON filename
+              if [ "$REPORT_URL" = "null" ] || [ -z "$REPORT_URL" ]; then
+                JSON_FILENAME=$(basename $LATEST_JSON)
+                HTML_FILENAME="${JSON_FILENAME%.json}.html"
+                REPORT_URL="https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/$HTML_FILENAME"
+              fi
+              
+              echo "Lighthouse 보고서 전체 보기: $REPORT_URL"
+            else
+              echo "No JSON report file found in .lighthouseci directory"
+            fi
+          else
+            echo "links.json not found. Unable to process Lighthouse results."
+          fi
