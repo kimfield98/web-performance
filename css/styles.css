@@ -202,10 +202,11 @@ section.country-bar {
     flex-direction: column;
     height: 60px;
     background-color: #f2f2f2;
+    opacity: 1;
 }
 
 section.country-bar.hidden {
-    display: none;
+    opacity: 0;
 }
 
 section.best-sellers {
